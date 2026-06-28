@@ -1,0 +1,4 @@
+# FollMuz Web Server Dependencies
+Flask>=3.0
+mutagen>=1.47
+yt-dlp>=2024.0
