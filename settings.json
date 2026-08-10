@@ -1,5 +1,13 @@
 {
     "path_tracks": "C:/Users/Smixr/Music/Плейлист",
     "path_playlists": "C:/Users/Smixr/Music/Плейлист",
-    "player_width": 800
+    "player_width": 650,
+    "theme": "dark",
+    "crossfade_enabled": true,
+    "crossfade_duration": 1,
+    "favorite_artists": [],
+    "excluded_artists": [],
+    "favorite_genres": [],
+    "excluded_genres": [],
+    "tg_token": ""
 }

@@ -31,43 +31,37 @@ On Error GoTo 0
 
 ' Check if port 5000 is busy and kill old process
 On Error Resume Next
-Set http = CreateObject("MSXML2.ServerXMLHTTP")
-http.setTimeouts 1000, 1000, 1000, 1000
-http.open "GET", "http://127.0.0.1:5000", False
-http.send
-If http.Status = 200 Then
-    ' Server already running - kill it
+res = WshShell.Run("powershell -Command ""try { (Invoke-WebRequest -Uri 'http://127.0.0.1:5000' -TimeoutSec 1 -UseBasicParsing).StatusCode -eq 200 } catch { exit 1 }""", 0, True)
+If res = 0 Then
     WshShell.Run "cmd /c taskkill /IM pythonw.exe /F", 0, True
     WScript.Sleep 1000
 End If
-Set http = Nothing
 On Error GoTo 0
 
 ' Delete old error log
 If fso.FileExists("error.log") Then fso.DeleteFile("error.log")
 
-' Start server hidden via cmd /c (Exec doesn't support redirection)
-' 0 = hidden window
-WshShell.Run "cmd /c pythonw.exe app.py 2> error.log", 0, False
+' Start server hidden via cmd /c
+WshShell.Run "cmd /c pythonw.exe app.py > error.log 2>&1", 0, False
 
-' Wait 3 seconds for server to start
-WScript.Sleep 3000
-
-' Check if server is running
-On Error Resume Next
-Set http = CreateObject("MSXML2.ServerXMLHTTP")
-http.setTimeouts 2000, 2000, 2000, 2000
-http.open "GET", "http://127.0.0.1:5000", False
-http.send
-serverOK = (http.Status = 200)
-Set http = Nothing
-On Error GoTo 0
+' Wait and check server with retries (up to 10 attempts, 1 second each)
+serverOK = False
+For i = 1 to 10
+    WScript.Sleep 1000
+    On Error Resume Next
+    res = WshShell.Run("powershell -Command ""try { (Invoke-WebRequest -Uri 'http://127.0.0.1:5000' -TimeoutSec 1 -UseBasicParsing).StatusCode -eq 200 } catch { exit 1 }""", 0, True)
+    If res = 0 Then
+        serverOK = True
+        Exit For
+    End If
+    On Error GoTo 0
+Next
 
 If serverOK Then
-    ' Server started - open browser
+    ' Server started successfully - open browser
     WshShell.Run "http://127.0.0.1:5000", 1, False
 Else
-    ' Server failed - show error
+    ' Server failed - show error dialog with log details
     errorMsg = "Server failed to start!" & vbCrLf & vbCrLf
     
     If fso.FileExists("error.log") Then

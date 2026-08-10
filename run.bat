@@ -23,7 +23,7 @@ for /f "tokens=*" %%i in ('python --version 2^>^&1') do set PYVER=%%i
 echo [OK] %PYVER%
 echo.
 
-:: Check all dependencies at once
+:: Check dependencies
 echo [2/5] Checking dependencies...
 python -c "import flask; import mutagen; import yt_dlp" >nul 2>&1
 if errorlevel 1 (
@@ -70,28 +70,26 @@ if exist error.log del error.log
 echo [5/5] Starting server...
 echo.
 echo Server will run in background mode.
-echo This window will close automatically.
-echo.
 echo Server URL: http://127.0.0.1:5000
 echo.
-echo To stop server:
-echo   - Task Manager: kill pythonw.exe
-echo   - Or run: taskkill /IM pythonw.exe /F
-echo.
-echo ================================================
-echo.
 
-:: Start pythonw.exe hidden with error logging
-start "" /b pythonw.exe app.py 2> error.log
+:: Start pythonw.exe hidden with logging
+start "" /b pythonw.exe app.py > error.log 2>&1
 
-:: Wait for server to start
+:: Wait for server to start (up to 10 seconds)
 echo Waiting for server to start...
-timeout /t 3 /nobreak >nul
+set SERVER_OK=0
+for /l %%i in (1,1,10) do (
+    timeout /t 1 /nobreak >nul
+    powershell -Command "try { Invoke-WebRequest -Uri 'http://127.0.0.1:5000' -TimeoutSec 1 -UseBasicParsing | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+    if not errorlevel 1 (
+        set SERVER_OK=1
+        goto :server_started
+    )
+)
 
-:: Check if server is running
-powershell -Command "try { Invoke-WebRequest -Uri 'http://127.0.0.1:5000' -TimeoutSec 2 -UseBasicParsing | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
-
-if errorlevel 1 (
+:server_started
+if "%SERVER_OK%"=="0" (
     echo [ERROR] Server failed to start!
     echo.
     if exist error.log (

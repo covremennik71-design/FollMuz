@@ -15,24 +15,47 @@ TOKEN_FILE = os.path.join(BASE_DIR, 'tg_token.txt')
 CHAT_FILE = os.path.join(BASE_DIR, 'tg_chat.txt')
 
 API_BASE = 'https://api.telegram.org/bot'
+TRACKING_FILE = os.path.join(BASE_DIR, 'bot', 'tracking.json')
+
+def load_tracking():
+    if os.path.exists(TRACKING_FILE):
+        try:
+            with open(TRACKING_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_tracking(data):
+    os.makedirs(os.path.dirname(TRACKING_FILE), exist_ok=True)
+    with open(TRACKING_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        try:
+            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
     return {'path_tracks': str(Path.home() / 'Music')}
 
 def read_token():
     if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
-            return f.read().strip()
+        try:
+            with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+        except Exception:
+            pass
     return None
 
 def read_chat_id():
     if os.path.exists(CHAT_FILE):
-        with open(CHAT_FILE, 'r', encoding='utf-8') as f:
-            try: return int(f.read().strip())
-            except: pass
+        try:
+            with open(CHAT_FILE, 'r', encoding='utf-8') as f:
+                return int(f.read().strip())
+        except Exception:
+            pass
     return None
 
 def save_chat_id(cid):
@@ -49,6 +72,7 @@ def api(method, token, files=None, data=None):
         return {'ok': False}
 
 def get_audio_messages(token, chat_id, limit=100):
+    # TODO: при больших объемах чата этот метод может долго работать, но пока норм
     messages = {}
     offset = None
     while len(messages) < limit:
@@ -68,7 +92,7 @@ def get_audio_messages(token, chat_id, limit=100):
                     if audio:
                         fname = audio.get('file_name') or f"{audio['file_id']}.mp3"
                         messages[fname] = msg['message_id']
-        except:
+        except Exception:
             break
     return messages
 
@@ -99,37 +123,58 @@ def sync_once(token, chat_id, tracks_dir):
     log.info('Starting sync...')
     disk_files = get_mp3_files(tracks_dir)
     log.info(f'Found {len(disk_files)} tracks on disk')
-    chat_files = get_audio_messages(token, chat_id)
-    log.info(f'Found {len(chat_files)} audio messages in chat')
 
-    for fname, msg_id in chat_files.items():
-        if fname not in disk_files:
-            if delete_message(token, chat_id, msg_id):
+    tracking = load_tracking()
+    chat_data = tracking.get(str(chat_id), {})
+    tracked_filenames = set(chat_data.values())
+
+    disk_file_set = set(disk_files.keys())
+    for msg_id, fname in list(chat_data.items()):
+        if fname not in disk_file_set:
+            if delete_message(token, chat_id, int(msg_id)):
                 log.info(f'Deleted from chat: {fname}')
+                chat_data.pop(msg_id, None)
             else:
                 log.error(f'Failed to delete: {fname}')
 
-    for fname, fpath in disk_files.items():
-        if fname not in chat_files:
-            if send_audio_file(token, chat_id, fpath, fname):
-                log.info(f'Uploaded to chat: {fname}')
-            else:
-                log.error(f'Failed to upload: {fname}')
+    to_upload = sorted([fname for fname in disk_files.keys() if fname not in tracked_filenames])
+    
+    chunk_size = 4
+    for i in range(0, len(to_upload), chunk_size):
+        chunk = to_upload[i:i + chunk_size]
+        for fname in chunk:
+            fpath = disk_files[fname]
+            with open(fpath, 'rb') as f:
+                res = api('sendAudio', token,
+                    files={'audio': (os.path.basename(fname), f, 'audio/mpeg')},
+                    data={'chat_id': chat_id, 'title': os.path.splitext(os.path.basename(fname))[0]}
+                )
+                if res.get('ok'):
+                    msg_id = res['result']['message_id']
+                    chat_data[str(msg_id)] = fname
+                    log.info(f'Uploaded to chat: {fname}')
+                else:
+                    log.error(f'Failed to upload {fname}: {res}')
+        tracking[str(chat_id)] = chat_data
+        save_tracking(tracking)
+        time.sleep(1.5) # Небольшая пауза, чтобы не словить rate limit от Telegram
 
+    tracking[str(chat_id)] = chat_data
+    save_tracking(tracking)
     log.info('Sync complete')
 
 def main():
-    token = read_token()
-    if not token:
+    tkn = read_token()
+    if not tkn:
         log.error('NO_TOKEN')
         sys.exit(1)
-    chat_id = read_chat_id()
-    if not chat_id:
+    cid = read_chat_id()
+    if not cid:
         log.error('NO_CHAT')
         sys.exit(1)
-    settings = load_settings()
-    tracks_dir = settings.get('path_tracks', str(Path.home() / 'Music'))
-    sync_once(token, chat_id, tracks_dir)
+    cfg = load_settings()
+    tr_dir = cfg.get('path_tracks', str(Path.home() / 'Music'))
+    sync_once(tkn, cid, tr_dir)
 
 if __name__ == '__main__':
     main()
