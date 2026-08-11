@@ -1,4 +1,3 @@
-# src/styles.py
 """Модуль для стилей, цветов, эффектов и шрифтов приложения."""
 
 import tkinter as tk
@@ -10,7 +9,7 @@ class AnimatedWidget:
 
     @staticmethod
     def fade_in(widget, duration=0.3, steps=20):
-        step_time = int(duration * 1000 / steps)
+        step_time = max(1, int(duration * 1000 / steps))
 
         def animate(step=0):
             if step <= steps:
@@ -18,7 +17,7 @@ class AnimatedWidget:
                 try:
                     widget.attributes("-alpha", alpha)
                 except tk.TclError:
-                    pass
+                    return
                 widget.after(step_time, animate, step + 1)
 
         try:
@@ -29,7 +28,7 @@ class AnimatedWidget:
 
     @staticmethod
     def fade_out(widget, duration=0.3, steps=20, callback=None):
-        step_time = int(duration * 1000 / steps)
+        step_time = max(1, int(duration * 1000 / steps))
 
         def animate(step=0):
             if step <= steps:
@@ -37,7 +36,7 @@ class AnimatedWidget:
                 try:
                     widget.attributes("-alpha", alpha)
                 except tk.TclError:
-                    pass
+                    return
                 widget.after(step_time, animate, step + 1)
             else:
                 if callback:
@@ -54,8 +53,14 @@ class AnimatedWidget:
         except tk.TclError:
             return
 
-        start_x = -w if direction == "right" else w
-        step_time = int(duration * 1000 / steps)
+        if direction == "right":
+            start_x = -w
+        elif direction == "left":
+            start_x = w
+        else:
+            start_x = -w
+
+        step_time = max(1, int(duration * 1000 / steps))
 
         def animate(step=0):
             if step <= steps:
@@ -64,7 +69,7 @@ class AnimatedWidget:
                 try:
                     widget.place(x=x, y=y)
                 except tk.TclError:
-                    pass
+                    return
                 widget.after(step_time, animate, step + 1)
 
         animate()
@@ -269,18 +274,16 @@ class AppColors:
 
     @classmethod
     def get_theme(cls, theme_name="dark"):
-        """Получить цветовую схему по имени."""
         return cls.THEMES.get(theme_name, cls.DARK)
-    
+
     @classmethod
     def get_available_themes(cls):
-        """Получить список доступных тем."""
         return list(cls.THEMES.keys())
 
     @staticmethod
     def hex_to_rgb(hex_color):
         hex_color = hex_color.lstrip("#")
-        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
 
     @staticmethod
     def rgb_to_hex(r, g, b):
@@ -292,6 +295,8 @@ class GradientBackground:
 
     @staticmethod
     def create_gradient(width, height, color1, color2, vertical=True):
+        width = max(1, int(width))
+        height = max(1, int(height))
         image = Image.new("RGB", (width, height), color1)
         draw = ImageDraw.Draw(image)
 
@@ -299,15 +304,17 @@ class GradientBackground:
         c2 = AppColors.hex_to_rgb(color2)
 
         if vertical:
+            denom = max(1, height - 1)
             for i in range(height):
-                ratio = i / height
+                ratio = i / denom
                 r = int(c1[0] * (1 - ratio) + c2[0] * ratio)
                 g = int(c1[1] * (1 - ratio) + c2[1] * ratio)
                 b = int(c1[2] * (1 - ratio) + c2[2] * ratio)
                 draw.line([(0, i), (width, i)], fill=(r, g, b))
         else:
+            denom = max(1, width - 1)
             for i in range(width):
-                ratio = i / width
+                ratio = i / denom
                 r = int(c1[0] * (1 - ratio) + c2[0] * ratio)
                 g = int(c1[1] * (1 - ratio) + c2[1] * ratio)
                 b = int(c1[2] * (1 - ratio) + c2[2] * ratio)
@@ -325,11 +332,15 @@ class GradientBackground:
             return
 
         if width > 1 and height > 1:
+            if hasattr(frame, "_bg_label") and frame._bg_label.winfo_exists():
+                frame._bg_label.destroy()
+
             bg_image = GradientBackground.create_gradient(width, height, color1, color2, vertical)
-            bg_label = tk.Label(frame, image=bg_image)
+            bg_label = tk.Label(frame, image=bg_image, borderwidth=0, highlightthickness=0)
             bg_label.place(x=0, y=0, relwidth=1, relheight=1)
             bg_label.lower()
             frame._bg_image = bg_image
+            frame._bg_label = bg_label
 
 
 class AppStyles:
@@ -380,340 +391,5 @@ class AppStyles:
         return {
             "fg_color": fg_map.get(variant, colors["surface"]),
             "border_width": 1,
-            "border_color": colors["border"],
+            "border_color": colors.get("border", "#1c2b43"),
         }
-
-    @staticmethod
-    def button_palette(colors, variant="primary"):
-        if variant == "primary":
-            return colors["primary"], colors["primary_hover"], colors["primary_press"]
-        if variant == "secondary":
-            return colors["button_secondary"], colors["button_secondary_hover"], colors["button_secondary_press"]
-        if variant == "ghost":
-            return "transparent", colors["button_ghost_hover"], colors["button_ghost_press"]
-        return colors["card"], colors["surface_hover"], colors["surface_press"]
-
-    @staticmethod
-    def entry(colors):
-        return {
-            "fg_color": colors["input_bg"],
-            "border_color": colors["input_border"],
-            "text_color": colors["text"],
-            "placeholder_text_color": colors["placeholder"],
-        }
-
-    @staticmethod
-    def primary_button(colors):
-        return {
-            "fg_color": colors["primary"],
-            "hover_color": colors["primary_hover"],
-            "text_color": "#ffffff",
-            "border_width": 0,
-        }
-
-    @staticmethod
-    def secondary_button(colors):
-        return {
-            "fg_color": colors["button_secondary"],
-            "hover_color": colors["button_secondary_hover"],
-            "text_color": colors["text"],
-            "border_width": 1,
-            "border_color": colors["border"],
-        }
-
-    @staticmethod
-    def ghost_button(colors):
-        return {
-            "fg_color": "transparent",
-            "hover_color": colors["button_ghost_hover"],
-            "text_color": colors["text_secondary"],
-            "border_width": 1,
-            "border_color": colors["border"],
-        }
-
-    @staticmethod
-    def icon_button(colors):
-        return {
-            "fg_color": colors["card"],
-            "hover_color": colors["surface_hover"],
-            "text_color": colors["text"],
-            "border_width": 1,
-            "border_color": colors["border"],
-        }
-
-    @staticmethod
-    def tabview(colors):
-        return {
-            "fg_color": colors["surface"],
-            "border_width": 1,
-            "border_color": colors["border"],
-            "segmented_button_fg_color": colors["tab_fg"],
-            "segmented_button_selected_color": colors["tab_selected"],
-            "segmented_button_selected_hover_color": colors["tab_selected_hover"],
-            "segmented_button_unselected_color": colors["tab_unselected"],
-            "segmented_button_unselected_hover_color": colors["tab_unselected_hover"],
-            "text_color": colors["text"],
-            "text_color_disabled": colors["text_secondary"],
-        }
-
-    @staticmethod
-    def textbox(colors):
-        return {
-            "fg_color": colors["log_bg"],
-            "border_width": 1,
-            "border_color": colors["border"],
-            "text_color": colors["text"],
-            "scrollbar_button_color": colors["scrollbar"],
-            "scrollbar_button_hover_color": colors["scrollbar_hover"],
-        }
-
-    @staticmethod
-    def scrollable_frame(colors):
-        return {
-            "fg_color": colors["surface"],
-            "border_width": 1,
-            "border_color": colors["border"],
-            "scrollbar_button_color": colors["scrollbar"],
-            "scrollbar_button_hover_color": colors["scrollbar_hover"],
-        }
-
-    @staticmethod
-    def radio(colors):
-        return {
-            "fg_color": colors["primary"],
-            "hover_color": colors["primary_hover"],
-            "border_color": colors["input_border"],
-            "text_color": colors["text"],
-        }
-
-    @staticmethod
-    def checkbox(colors):
-        return {
-            "fg_color": colors["primary"],
-            "hover_color": colors["primary_hover"],
-            "border_color": colors["input_border"],
-            "text_color": colors["text"],
-        }
-
-
-
-class AppFonts:
-    """Шрифты, используемые в интерфейсе."""
-    
-    # Семейства шрифтов
-    FAMILY = ("Segoe UI", "Arial", "sans-serif")
-    MONO = ("Consolas", "Courier New", "monospace")
-    
-    # Размеры
-    TITLE_SIZE = 28
-    HEADER_SIZE = 16
-    BODY_SIZE = 14
-    SMALL_SIZE = 12
-    MICRO_SIZE = 10
-    
-    @classmethod
-    def get_font(cls, style="body", weight=None, family=None):
-        """
-        Получить параметры шрифта.
-        
-        Args:
-            style: Стиль шрифта ("title", "header", "body", "small", "micro", "mono")
-            weight: Вес шрифта (None - использовать стандартный, "normal", "bold")
-            family: Семейство шрифта (None - использовать стандартное)
-        
-        Returns:
-            dict: Параметры для создания шрифта
-        """
-        # Определяем базовые параметры по стилю
-        if style == "title":
-            default_family = cls.FAMILY
-            size = cls.TITLE_SIZE
-            default_weight = "bold"
-        elif style == "header":
-            default_family = cls.FAMILY
-            size = cls.HEADER_SIZE
-            default_weight = "bold"
-        elif style == "body":
-            default_family = cls.FAMILY
-            size = cls.BODY_SIZE
-            default_weight = "normal"
-        elif style == "small":
-            default_family = cls.FAMILY
-            size = cls.SMALL_SIZE
-            default_weight = "normal"
-        elif style == "micro":
-            default_family = cls.FAMILY
-            size = cls.MICRO_SIZE
-            default_weight = "normal"
-        elif style == "mono":
-            default_family = cls.MONO
-            size = cls.SMALL_SIZE
-            default_weight = "normal"
-        else:
-            default_family = cls.FAMILY
-            size = cls.BODY_SIZE
-            default_weight = "normal"
-        
-        # Определяем финальные параметры
-        final_family = family if family else default_family
-        final_weight = weight if weight is not None else default_weight
-        
-        return {
-            "family": final_family,
-            "size": size,
-            "weight": final_weight
-        }
-    
-    @classmethod
-    def title(cls):
-        """Параметры для заголовка (уже жирный)."""
-        return cls.get_font("title")
-    
-    @classmethod
-    def header(cls):
-        """Параметры для заголовка секции (уже жирный)."""
-        return cls.get_font("header")
-    
-    @classmethod
-    def body(cls):
-        """Параметры для основного текста (обычный)."""
-        return cls.get_font("body")
-    
-    @classmethod
-    def body_bold(cls):
-        """Параметры для основного текста (жирный)."""
-        return cls.get_font("body", weight="bold")
-    
-    @classmethod
-    def small(cls):
-        """Параметры для мелкого текста (обычный)."""
-        return cls.get_font("small")
-    
-    @classmethod
-    def small_bold(cls):
-        """Параметры для мелкого текста (жирный)."""
-        return cls.get_font("small", weight="bold")
-    
-    @classmethod
-    def micro(cls):
-        """Параметры для очень мелкого текста."""
-        return cls.get_font("micro")
-    
-    @classmethod
-    def mono(cls):
-        """Параметры для моноширинного текста."""
-        return cls.get_font("mono")
-
-
-class AppDimensions:
-    """Размеры и отступы в интерфейсе."""
-    
-    # Размеры окна
-    WINDOW_MIN_WIDTH = 1040
-    WINDOW_MIN_HEIGHT = 720
-    WINDOW_DEFAULT_WIDTH = 1220
-    WINDOW_DEFAULT_HEIGHT = 820
-    
-    # Отступы
-    PADDING_LARGE = 20
-    PADDING_MEDIUM = 10
-    PADDING_SMALL = 5
-    
-    # Высота элементов
-    BUTTON_HEIGHT_NORMAL = 40
-    BUTTON_HEIGHT_LARGE = 50
-    ENTRY_HEIGHT = 40
-    HEADER_HEIGHT = 92
-    PROGRESS_HEIGHT = 14
-    
-    # Алиас для обратной совместимости (используется в коде)
-    BUTTON_HEIGHT = 44
-    
-    # Ширина элементов
-    BUTTON_WIDTH_NORMAL = 100
-    BUTTON_WIDTH_LARGE = 150
-    ENTRY_WIDTH_NORMAL = 400
-    ENTRY_WIDTH_LARGE = 500
-    ENTRY_WIDTH_XLARGE = 600
-    
-    # Радиусы скругления
-    RADIUS_SMALL = 12
-    RADIUS_MEDIUM = 18
-    RADIUS_LARGE = 24
-    RADIUS_CIRCLE = 9999
-
-
-class AppEffects:
-    """Небольшие hover/press-эффекты для CustomTkinter виджетов."""
-
-    @staticmethod
-    def bind_button(widget, colors, variant="primary"):
-        base, hover, press = AppStyles.button_palette(colors, variant)
-        base_border = colors["border"] if variant != "primary" else colors["primary"]
-        hover_border = colors["border_strong"] if variant != "primary" else colors["accent"]
-
-        def safe_configure(**kwargs):
-            try:
-                widget.configure(**kwargs)
-            except tk.TclError:
-                pass
-
-        def on_enter(_event):
-            safe_configure(fg_color=hover, border_color=hover_border)
-
-        def on_leave(_event):
-            safe_configure(fg_color=base, border_color=base_border)
-
-        def on_press(_event):
-            safe_configure(fg_color=press, border_color=hover_border)
-
-        def on_release(_event):
-            try:
-                if widget.winfo_containing(widget.winfo_pointerx(), widget.winfo_pointery()) == widget:
-                    on_enter(_event)
-                else:
-                    on_leave(_event)
-            except tk.TclError:
-                pass
-
-        widget.bind("<Enter>", on_enter, add="+")
-        widget.bind("<Leave>", on_leave, add="+")
-        widget.bind("<ButtonPress-1>", on_press, add="+")
-        widget.bind("<ButtonRelease-1>", on_release, add="+")
-
-    @staticmethod
-    def bind_card(widget, colors):
-        base = colors["card"]
-        hover = colors["surface_hover"]
-
-        def safe_configure(**kwargs):
-            try:
-                widget.configure(**kwargs)
-            except tk.TclError:
-                pass
-
-        def pointer_inside_card():
-            try:
-                x = widget.winfo_pointerx()
-                y = widget.winfo_pointery()
-                left = widget.winfo_rootx()
-                top = widget.winfo_rooty()
-                right = left + widget.winfo_width()
-                bottom = top + widget.winfo_height()
-                return left <= x <= right and top <= y <= bottom
-            except tk.TclError:
-                return False
-
-        def on_enter(_event=None):
-            if pointer_inside_card():
-                safe_configure(fg_color=hover, border_color=colors["border_strong"])
-
-        def on_leave(_event=None):
-            def apply_if_really_left():
-                if not pointer_inside_card():
-                    safe_configure(fg_color=base, border_color=colors["border"])
-
-            widget.after(10, apply_if_really_left)
-
-        widget.bind("<Enter>", on_enter, add="+")
-        widget.bind("<Leave>", on_leave, add="+")
