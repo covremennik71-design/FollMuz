@@ -2,6 +2,7 @@
 import os
 import threading
 import time
+import random
 from typing import Optional, Callable, List, Dict
 
 PYGAME_AVAILABLE = False
@@ -11,17 +12,13 @@ def _init_pygame():
     global PYGAME_AVAILABLE, pygame
     if pygame is None:
         try:
+            # pygame и pygame-ce импортируются одинаково как 'pygame'
             pygame = __import__('pygame')
             pygame.mixer.init()
             PYGAME_AVAILABLE = True
-        except ImportError:
-            try:
-                pygame_ce = __import__('pygame-ce')
-                globals()['pygame'] = pygame_ce
-                pygame_ce.mixer.init()
-                PYGAME_AVAILABLE = True
-            except ImportError:
-                PYGAME_AVAILABLE = False
+        except Exception:
+            # Ловим любые ошибки (включая отсутствие аудио-драйверов)
+            PYGAME_AVAILABLE = False
 
 
 class AudioPlayer:
@@ -63,10 +60,7 @@ class AudioPlayer:
 
     def load_track(self, filepath: str, artist: str = "", title: str = "") -> bool:
         """Загрузить трек для воспроизведения."""
-        if not os.path.exists(filepath):
-            return False
-        
-        if not PYGAME_AVAILABLE:
+        if not os.path.exists(filepath) or not PYGAME_AVAILABLE:
             return False
 
         try:
@@ -87,12 +81,14 @@ class AudioPlayer:
             return False
 
     def _get_duration(self, filepath: str) -> float:
-        """Получить длительность трека в секундах."""
+        """Получить длительность трека в секундах (поддержка mp3, flac, wav, ogg)."""
         try:
-            from mutagen.mp3 import MP3
-            audio = MP3(filepath)
-            return audio.info.length
-        except:
+            from mutagen import File
+            audio = File(filepath)
+            if audio and audio.info:
+                return audio.info.length
+            return 0
+        except Exception:
             return 0
 
     def play(self):
@@ -132,6 +128,8 @@ class AudioPlayer:
             pygame.mixer.music.unpause()
             self.is_paused = False
             self.is_playing = True
+            # Важно: при паузе поток обновления позиции завершается, его нужно перезапустить
+            self._start_position_updates()
             self._trigger_callback("on_resume")
         except Exception as e:
             print(f"Ошибка продолжения: {e}")
@@ -169,11 +167,9 @@ class AudioPlayer:
             return
 
         try:
-            current_pos = pygame.mixer.music.get_pos() / 1000.0
-            delta = position - self.position
-            
-            if delta > 0:
-                pass
+            # Фактически перематываем трек в pygame
+            if hasattr(pygame.mixer.music, 'set_pos'):
+                pygame.mixer.music.set_pos(position)
             
             self.position = position
             self._trigger_callback("on_seek", position)
@@ -208,7 +204,6 @@ class AudioPlayer:
         
         # Load first track
         first_file = self.playlist[0]
-        # Try to extract artist/title from filename
         filename = os.path.basename(first_file)
         name_without_ext = os.path.splitext(filename)[0]
         artist, title = "Unknown", name_without_ext
@@ -224,7 +219,6 @@ class AudioPlayer:
             return False
             
         if self.repeat_mode == "RANDOM":
-            import random
             self.current_track_index = random.randint(0, len(self.playlist) - 1)
         else:
             self.current_track_index += 1
@@ -277,7 +271,7 @@ class AudioPlayer:
                 self.position = pos
                 return pos
             return self.position
-        except:
+        except Exception:
             return 0
 
     def _start_position_updates(self):
@@ -287,7 +281,13 @@ class AudioPlayer:
         def update_loop():
             while not self._stop_event.is_set() and self.is_playing:
                 try:
-                    pos = pygame.mixer.music.get_pos() / 1000.0
+                    pos_ms = pygame.mixer.music.get_pos()
+                    # Если музыка не играет, get_pos() возвращает -1
+                    if pos_ms < 0:
+                        pos = self.duration if self.duration > 0 else 0
+                    else:
+                        pos = pos_ms / 1000.0
+                        
                     self.position = pos
                     self._trigger_callback("on_position_update", pos)
                     
@@ -299,12 +299,11 @@ class AudioPlayer:
                             if self.repeat_mode == "TRACK":
                                 self.play()
                             else:
-                                self.play_next()
-                                if self.current_file:
+                                if self.play_next():
                                     self.play()
                         break
                         
-                except:
+                except Exception:
                     pass
                 time.sleep(0.1)
         
@@ -401,7 +400,6 @@ class AudioPlayerWidget:
         self.controls_frame = ctk.CTkFrame(self.frame, fg_color="transparent")
         self.controls_frame.pack(pady=(0, 12))
         
-        # Folder selection button
         self.folder_btn = ctk.CTkButton(
             self.controls_frame,
             text="📁",
@@ -426,7 +424,6 @@ class AudioPlayerWidget:
         )
         self.play_btn.pack(side="left", padx=15)
 
-        # Repeat button with dropdown
         self.repeat_btn = ctk.CTkButton(
             self.controls_frame,
             text="🔁",
@@ -439,7 +436,6 @@ class AudioPlayerWidget:
         )
         self.repeat_btn.pack(side="left", padx=10)
 
-        # Autoplay toggle
         self.autoplay_btn = ctk.CTkButton(
             self.controls_frame,
             text="♻️",
@@ -452,7 +448,6 @@ class AudioPlayerWidget:
         )
         self.autoplay_btn.pack(side="left", padx=10)
         
-        # Equalizer button
         self.eq_btn = ctk.CTkButton(
             self.controls_frame,
             text="🎚️",
@@ -507,7 +502,6 @@ class AudioPlayerWidget:
         if folder:
             if self.player.load_folder(folder):
                 self.player.play()
-                # Trigger load callback to update UI
                 first_track = self.player.current_track_info
                 self._on_track_load(first_track)
                 self._on_play()
@@ -528,7 +522,6 @@ class AudioPlayerWidget:
         menu.attributes("-topmost", True)
         menu.overrideredirect(True)
         
-        # Position menu near the button
         x = self.repeat_btn.winfo_rootx()
         y = self.repeat_btn.winfo_rooty() + self.repeat_btn.winfo_height()
         menu.geometry(f"+{x}+{y}")
@@ -562,7 +555,7 @@ class AudioPlayerWidget:
         
         eq_win = ctk.CTkToplevel(self.master)
         eq_win.title("Equalizer")
-        eq_win.geometry("400x500")
+        eq_win.geometry("600x400")
         eq_win.attributes("-topmost", True)
         
         container = ctk.CTkFrame(eq_win, corner_radius=20, **AppStyles.panel(self.colors, "card"))
@@ -588,101 +581,4 @@ class AudioPlayerWidget:
             slider = ctk.CTkSlider(
                 band_frame, 
                 from_=-12, 
-                to=12, 
-                orientation="vertical", 
-                width=20,
-                command=lambda v, b=band: self._update_eq_band(b, v)
-            )
-            slider.set(self.player.eq_settings[band])
-            slider.pack(pady=(20, 10))
-            
-            ctk.CTkLabel(
-                band_frame, 
-                text=band, 
-                font=create_ctk_font("micro"), 
-                text_color=self.colors["text_secondary"]
-            ).pack()
-            
-            self.eq_sliders[band] = slider
-
-        def reset_eq():
-            for band, slider in self.eq_sliders.items():
-                slider.set(0)
-                self._update_eq_band(band, 0)
-
-        reset_btn = ctk.CTkButton(
-            container,
-            text="Сбросить настройки",
-            command=reset_eq,
-            **AppStyles.secondary_button(self.colors)
-        )
-        reset_btn.pack(pady=20)
-
-    def _update_eq_band(self, band, value):
-        self.player.eq_settings[band] = value
-        # Pygame does not support real-time EQ, so we store state.
-        # If we had a DSP library, we would apply the filter here.
-        pass
-
-    def _on_slider_release(self, event):
-        duration = self.player.duration
-        if duration > 0:
-            position = (self.progress_slider.get() / 100) * duration
-            self.player.seek(position)
-
-    def _on_volume_change(self, event):
-        volume = self.volume_slider.get() / 100
-        self.player.set_volume(volume)
-        if volume == 0:
-            self.volume_label.configure(text="🔇")
-        elif volume < 0.5:
-            self.volume_label.configure(text="🔉")
-        else:
-            self.volume_label.configure(text="🔊")
-
-    def _on_track_load(self, track_info):
-        if track_info:
-            self.track_label.configure(text=track_info.get("title", "Неизвестный трек"))
-            self.artist_label.configure(text=track_info.get("artist", ""))
-            self.time_total.configure(text=self.player.format_time(self.player.duration))
-            self.progress_slider.set(0)
-            self.time_current.configure(text="0:00")
-
-    def _on_play(self):
-        self.play_btn.configure(text="⏸")
-
-    def _on_pause(self):
-        self.play_btn.configure(text="▶")
-
-    def _on_position_update(self, position):
-        duration = self.player.duration
-        if duration > 0:
-            pct = (position / duration) * 100
-            self.progress_slider.set(pct)
-            self.time_current.configure(text=self.player.format_time(position))
-
-    def _on_end(self):
-        self.play_btn.configure(text="▶")
-        self.progress_slider.set(0)
-        self.time_current.configure(text="0:00")
-
-    def _on_seek(self, position):
-        self.time_current.configure(text=self.player.format_time(position))
-
-    def show(self):
-        self.frame.pack(fill="x", padx=20, pady=(10, 0))
-
-    def hide(self):
-        self.frame.pack_forget()
-
-    def refresh_colors(self):
-        from src.styles import AppColors, AppStyles
-        from src.config import config
-        self.colors = AppColors.get_theme(config.get("theme", "dark") or "dark")
-        self.frame.configure(fg_color=self.colors["card"])
-        if not hasattr(self, 'track_label'):
-            return
-        self.track_label.configure(text_color=self.colors["text"])
-        self.artist_label.configure(text_color=self.colors["text_secondary"])
-        self.time_current.configure(text_color=self.colors["text_secondary"])
-        self.time_total.configure(text_color=self.colors["text_secondary"])
+                to=
